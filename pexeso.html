@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pexeso 8x8</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #f0f2f5;
+            margin: 0;
+        }
+
+        h1 {
+            color: #333;
+        }
+
+        #game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #game-board {
+            display: grid;
+            grid-template-columns: repeat(8, 10vmin);
+            grid-template-rows: repeat(8, 10vmin);
+            gap: 4px;
+            max-width: 800px;
+            max-height: 800px;
+            perspective: 1000px;
+        }
+
+        .card {
+            background-color: transparent;
+            cursor: pointer;
+            perspective: 1000px;
+        }
+
+        .card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            transition: transform 0.6s;
+            transform-style: preserve-3d;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            border-radius: 5px;
+        }
+
+        .card.flipped .card-inner {
+            transform: rotateY(180deg);
+        }
+
+        .card-front, .card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 5px;
+        }
+
+        .card-back {
+            background-color: #4a90e2;
+            color: white;
+        }
+
+        .card-front {
+            background-color: #fff;
+            color: #333;
+            transform: rotateY(180deg);
+            font-size: 5vmin;
+        }
+        
+        .card.matched .card-front {
+            background-color: #d4edda; /* Greenish tint for matched pairs */
+        }
+
+        #controls {
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        #reset-btn {
+            padding: 10px 20px;
+            font-size: 16px;
+            color: #fff;
+            background-color: #4a90e2;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        #reset-btn:hover {
+            background-color: #357abd;
+        }
+        
+        #moves-counter {
+            font-size: 18px;
+            color: #333;
+        }
+
+        #scoreboard {
+            margin-top: 15px;
+            font-size: 18px;
+            color: #333;
+            text-align: center;
+        }
+
+        .player-score {
+            margin: 0 15px;
+            padding: 5px 10px;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+
+        .player-score.active {
+            background-color: #4a90e2;
+            color: #fff;
+            font-weight: bold;
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>Pexeso</h1>
+    <div id="game-container">
+        <div id="game-board"></div>
+        <div id="scoreboard">
+            <span id="player1-score" class="player-score active">Hráč 1: 0</span>
+            <span id="player2-score" class="player-score">Hráč 2: 0</span>
+        </div>
+        <div id="controls">
+            <button id="reset-btn">Nová hra</button>
+        </div>
+    </div>
+
+    <script>
+        const gameBoard = document.getElementById('game-board');
+        const resetButton = document.getElementById('reset-btn');
+        const player1ScoreElem = document.getElementById('player1-score');
+        const player2ScoreElem = document.getElementById('player2-score');
+
+        const gridSize = 8;
+        const numCards = gridSize * gridSize;
+        const numPairs = numCards / 2;
+
+        let cards = [];
+        let flippedCards = [];
+        let matchedPairs = 0;
+        let lockBoard = false;
+        
+        let currentPlayer = 1;
+        let player1Score = 0;
+        let player2Score = 0;
+
+        // Generate a large set of emojis for the 128 pairs
+        const emojiPool = [
+            '😀', '😁', '😂', '🤣', '😃', '😄', '😅', '😆', '😉', '😊', '😋', '😎', '😍', '😘', '🥰', '😗',
+            '😙', '😚', '🙂', '🤗', '🤩', '🤔', '🤨', '😐', '😑', '😶', '🙄', '😏', '😣', '😥', '😮', '🤐',
+            '😯', '😪', '😫', '😴', '😌', '😛', '😜', '😝', '🤤', '😒', '😓', '😔', '😕', '🙃', '🤑', '😲',
+            '☹️', '🙁', '😖', '😞', '😟', '😤', '😢', '😭', '😦', '😧', '😨', '😩', '🤯', '😬', '😰', '😱',
+            '🥵', '🥶', '😳', '🤪', '😵', '😡', '😠', '🤬', '😷', '🤒', '🤕', '🤢', '🤮', '🤧', '😇', '🤠',
+            '🤡', '🥳', '🥴', '🥺', '🤥', '🤫', '🤭', '🧐', '🤓', '😈', '👿', '👹', '👺', '💀', '👻', '👽',
+            '🤖', '💩', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾', '🙈', '🙉', '🙊', '💋', '💌',
+            '💘', '💝', '💖', '💗', '💓', '💞', '💕', '💟', '❣️', '💔', '❤️', '🧡', '💛', '💚', '💙', '💜',
+            '🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐽', '🐸', '🐵',
+            '🙈', '🙉', '🙊', '🐒', '🐔', '🐧', '🐦', '🐤', '🐣', '🐥', '🦆', '🦅', '🦉', '🦇', '🐺', '🐗',
+            '🐴', '🦄', '🐝', '🐛', '🦋', '🐌', '🐞', '🐜', '🦟', '🦗', '🕷', '🕸', '🦂', '🐢', '🐍', '🦎',
+            '🦖', '🦕', '🐙', '🦑', '🦐', '🦞', '🦀', '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊', '🐅',
+            '🐆', '🦓', '🦍', '🦧', '🐘', '🦛', '🦏', '🐪', '🐫', '🦒', '🦘', '🐃', '🐂', '🐄', '🐎', '🐖',
+            '🐏', '🐑', '🦙', '🐐', '🦌', '🐕', '🐩', '🦮', '🐕‍🦺', '🐈', '🐓', '🦃', '🦚', '🦜', '🦢', '🦩',
+            '🕊', '🐇', '🦝', '🦨', '🦡', '🦦', '🦥', '🐁', '🐀', '🐿', '🦔', '🐾', '🐉', '🐲', '🌵', '🎄',
+            '🌲', '🌳', '🌴', '🌱', '🌿', '☘️', '🍀', '🎍', '🎋', '🍃', '🍂', '🍁', '🍄', '🐚', '🌾', '💐',
+            '🌷', '🌹', '🥀', '🌺', '🌸', '🌼', '🌻', '🌞', '🌝', '🌛', '🌜', '🌚', '🌕', '🌖', '🌗', '🌘',
+            '🌑', '🌒', '🌓', '🌔', '🌙', '🌎', '🌍', '🌏', '💫', '⭐️', '🌟', '✨', '⚡️', '☄️', '💥', '🔥',
+            '🌪', '🌈', '☀️', '🌤', '⛅️', '🌥', '☁️', '🌦', '🌧', '⛈', '🌩', '🌨', '❄️', '☃️', '⛄️', '🌬',
+            '💨', '💧', '💦', '☔️', '☂️', '🌊', '🌫', '🍏', '🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇',
+            '🍓', '🍈', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶',
+            '🌽', '🥕', '🧄', '🧅', '🥔', '🍠', '🥐', '🥯', '🍞', '🥖', '🥨', '🧀', '🥚', '🍳', '🧈',
+            '🥞', '🧇', '🥓', '🥩', '🍗', '🍖', '🦴', '핫도그', '🍔', '🍟', '🍕', '🥪', '🥙', '🧆',
+            '🌮', '🌯', '🥗', '🥘', '🥫', '🍝', '🍜', '🍲', '🍛', '🍣', '🍱', '🥟', '🍤', '🍙', '🍚',
+            '🍘', '🍥', '🥠', '🥮', '🍢', '🍡', '🍧', '🍨', '🍦', '🥧', '🧁', '🍰', '🎂', '🍮', '🍭',
+            '🍬', '🍫', '🍿', '🍩', '🍪', '🌰', '🥜', '🍯', '🥛', '🍼', '☕️', '🍵', '🧃', '🥤', '🍶',
+            '🍺', '🍻', '🥂', '🍷', '🥃', '🍸', '🍹', '🧉', '🍾', '🧊', '🥄', '🍴', '🍽', '🥣', '🥡',
+            '🥢', '🧂' 
+        ];
+
+        function createGame() {
+            // Reset state
+            gameBoard.innerHTML = '';
+            cards = [];
+            flippedCards = [];
+            matchedPairs = 0;
+            lockBoard = false;
+            currentPlayer = 1;
+            player1Score = 0;
+            player2Score = 0;
+            updateScoreboard();
+
+            // Create pairs of symbols
+            const symbols = [...emojiPool].sort(() => Math.random() - 0.5).slice(0, numPairs);
+            const gameSymbols = [...symbols, ...symbols];
+
+            // Shuffle symbols
+            gameSymbols.sort(() => Math.random() - 0.5);
+
+            // Create and append cards
+            for (let i = 0; i < numCards; i++) {
+                const card = document.createElement('div');
+                card.classList.add('card');
+                card.dataset.symbol = gameSymbols[i];
+
+                card.innerHTML = `
+                    <div class="card-inner">
+                        <div class="card-back"></div>
+                        <div class="card-front">${gameSymbols[i]}</div>
+                    </div>
+                `;
+
+                card.addEventListener('click', flipCard);
+                gameBoard.appendChild(card);
+                cards.push(card);
+            }
+        }
+
+        function flipCard() {
+            if (lockBoard) return;
+            if (this === flippedCards[0]) return;
+
+            this.classList.add('flipped');
+
+            if (flippedCards.length === 0) {
+                flippedCards.push(this);
+                return;
+            }
+
+            flippedCards.push(this);
+            checkForMatch();
+        }
+
+        function checkForMatch() {
+            const [cardOne, cardTwo] = flippedCards;
+            const isMatch = cardOne.dataset.symbol === cardTwo.dataset.symbol;
+
+            if (isMatch) {
+                disableCards();
+            } else {
+                unflipCards();
+            }
+        }
+
+        function disableCards() {
+            const [cardOne, cardTwo] = flippedCards;
+            cardOne.removeEventListener('click', flipCard);
+            cardTwo.removeEventListener('click', flipCard);
+            
+            cardOne.classList.add('matched');
+            cardTwo.classList.add('matched');
+
+            // Award point to the current player
+            if (currentPlayer === 1) {
+                player1Score++;
+            } else {
+                player2Score++;
+            }
+            updateScoreboard();
+
+            matchedPairs++;
+            resetBoard();
+
+            if (matchedPairs === numPairs) {
+                setTimeout(() => {
+                    const winner = player1Score > player2Score ? "Hráč 1" : (player2Score > player1Score ? "Hráč 2" : "Nikdo");
+                    alert(`Konec hry!\n\nSkóre:\nHráč 1: ${player1Score}\nHráč 2: ${player2Score}\n\nVítězí ${winner}!`);
+                }, 500);
+            }
+        }
+
+        function unflipCards() {
+            lockBoard = true;
+            setTimeout(() => {
+                flippedCards[0].classList.remove('flipped');
+                flippedCards[1].classList.remove('flipped');
+                switchPlayer();
+                resetBoard();
+            }, 1200);
+        }
+        
+        function switchPlayer() {
+            currentPlayer = currentPlayer === 1 ? 2 : 1;
+            updateScoreboard();
+        }
+
+        function updateScoreboard() {
+            player1ScoreElem.textContent = `Hráč 1: ${player1Score}`;
+            player2ScoreElem.textContent = `Hráč 2: ${player2Score}`;
+
+            if (currentPlayer === 1) {
+                player1ScoreElem.classList.add('active');
+                player2ScoreElem.classList.remove('active');
+            } else {
+                player1ScoreElem.classList.remove('active');
+                player2ScoreElem.classList.add('active');
+            }
+        }
+
+        function resetBoard() {
+            [flippedCards, lockBoard] = [[], false];
+        }
+
+        resetButton.addEventListener('click', createGame);
+
+        // Initial game setup
+        createGame();
+
+    </script>
+</body>
+</html>
